@@ -62,6 +62,17 @@ def test_vertical_transitions(column, expected):
     assert vertical_transitions(img.astype(bool), 0) == expected
 
 
+@pytest.mark.parametrize('name', ['LinearSVM', '1L_NN', '2L_NN', 'Gaussian_Naive_Bayes'])
+def test_every_saved_model_loads_and_predicts(name):
+    # OCR.py only uses 2L_NN, but a stale pickle in another file (the Naive
+    # Bayes one once could not predict at all) should not go unnoticed.
+    import pickle
+    with open(os.path.join(SRC, 'models', f'{name}.sav'), 'rb') as fin:
+        model = pickle.load(fin)
+    prediction = model.predict(np.zeros((1, 625), np.uint8))
+    assert len(prediction) == 1
+
+
 def test_projection_rejects_unknown_axis():
     with pytest.raises(ValueError):
         utilities.projection(np.zeros((2, 2)), 'diagonal')

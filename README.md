@@ -12,13 +12,13 @@
 > The system currently supports only letters: the 28 letters ا-ي and the لا ligature (no numbers, special symbols, ة, ى or hamza forms).
 ## Setup
 
-Install Python 3.10 or newer (the code was last tested with Python 3.13), then run this command:
+Install Python 3.11 or newer (the code was last tested with Python 3.13), then run this command:
 
 ```shell
 pip install -r requirements.txt
 ```
 
-> The bundled models in `src/models` are pickles saved with an old scikit-learn (0.22). They still load with current versions, with a warning. Only load pickles you trust. If a future scikit-learn stops loading them, retrain with `python train.py` (see [Training](#training)).
+> The bundled models in `src/models` are pickles saved with scikit-learn 1.9.1, which needs Python 3.11 or newer. Pickles load reliably only in the same or a newer scikit-learn version, and loading one can run arbitrary code, so only load pickles you trust. If a future scikit-learn stops loading them, retrain with `python train.py` (see [Training](#training)).
 
 ## Run
 

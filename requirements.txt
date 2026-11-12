@@ -1,11 +1,14 @@
-﻿# Direct dependencies only; pip resolves the rest. The lower bounds are the
-# oldest versions the code is expected to work with. The code was last tested
+﻿# Direct dependencies only; pip resolves the rest. The code was last tested
 # with Python 3.13, numpy 2.5, OpenCV 5.0, scikit-learn 1.9 and scikit-image 0.26.
+#
+# The pickled models in src/models were saved with scikit-learn 1.9.1, and
+# pickles only load reliably in the same or a newer version, hence the bound
+# below. scikit-learn 1.9 needs Python 3.11 or newer.
 numpy>=1.22
 scipy>=1.6
 opencv-python>=4.5
 scikit-image>=0.18
-scikit-learn>=0.22
+scikit-learn>=1.9.1
 Pillow>=9.3
 editdistance>=0.5
 tqdm>=4.59
