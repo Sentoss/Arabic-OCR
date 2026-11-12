@@ -9,7 +9,7 @@ Files are matched by name; whitespace is ignored when comparing.
 import os
 import sys
 
-import editdistance
+from rapidfuzz.distance import Levenshtein
 
 
 def read_text(path):
@@ -42,7 +42,7 @@ def evaluate(predicted_dir, truth_dir):
         predicted = read_text(os.path.join(predicted_dir, file_name))
         truth = read_text(truth_path)
 
-        distance = editdistance.eval(predicted, truth)
+        distance = Levenshtein.distance(predicted, truth)
         results.append((file_name, distance))
         accuracies.append(accuracy(distance, len(truth)))
 

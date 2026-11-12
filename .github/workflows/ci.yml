@@ -26,8 +26,11 @@ jobs:
         cache: pip
         cache-dependency-path: requirements*.txt
 
+    # Pre-built packages only. The CI machines have compilers, so without this
+    # a dependency that has no wheel for some Python would be compiled quietly
+    # here and then fail on a user's computer that has no compiler.
     - name: Install dependencies
-      run: pip install -r requirements-dev.txt
+      run: pip install --only-binary=:all: -r requirements-dev.txt
 
     - name: Run tests (includes OCR on the bundled sample images)
       run: pytest -v
