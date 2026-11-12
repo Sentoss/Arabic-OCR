@@ -30,7 +30,7 @@ jobs:
     # a dependency that has no wheel for some Python would be compiled quietly
     # here and then fail on a user's computer that has no compiler.
     - name: Install dependencies
-      run: pip install --only-binary=:all: -r requirements-dev.txt
+      run: "pip install --only-binary=:all: -r requirements-dev.txt"
 
     - name: Run tests (includes OCR on the bundled sample images)
       run: pytest -v
