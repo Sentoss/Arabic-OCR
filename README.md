@@ -29,12 +29,14 @@ pip install -r requirements.txt
    ```shell
    python src/OCR.py
    ```
-   Options: `--input DIR` (default `src/test`), `--output DIR` (default `src/output`), `-v` (log characters that could not be read).
+   Options: `--input DIR` (default `src/test`), `--output DIR` (default `src/output`), `--workers N` (processes used; default: the number of CPU cores, at most 4; `1` uses no extra processes), `-v` (log characters that could not be read).
 3. The output folder will be created with:
    - text folder which has text files corresponding to the images.
    - running_time file which has the time taken to process each image.
 
    The output folder is generated, so it is not tracked by git.
+
+> **`OpenBLAS: memory allocation failed after 10 tries`** (or the computer running out of memory): every worker process loads numpy, OpenCV, scikit-learn and the model. Update to the latest version, which limits each worker to one math thread, and if it still happens use fewer workers, for example `--workers 2`, or `--workers 1` to use no extra processes at all.
 
 ## Pipeline
 

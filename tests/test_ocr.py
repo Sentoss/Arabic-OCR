@@ -1,6 +1,7 @@
 """Smoke and regression tests. Run from the repository root: pytest"""
 
 import os
+import subprocess
 import sys
 
 import numpy as np
@@ -90,10 +91,35 @@ def test_image_roundtrip_with_non_ascii_path(tmp_path):
     assert utilities.read_image(path, 0).shape == (5, 5)
 
 
-def test_end_to_end_on_bundled_samples(tmp_path):
-    exit_code = OCR.main(['--output', str(tmp_path)])
+@pytest.mark.parametrize('workers', [[], ['--workers', '1'], ['--workers', '2']],
+                         ids=['default', 'in-process', 'two-workers'])
+def test_end_to_end_on_bundled_samples(tmp_path, workers):
+    exit_code = OCR.main(['--output', str(tmp_path)] + workers)
     assert exit_code == 0
 
     results, average = edit.evaluate(str(tmp_path / 'text'), TRUTH_DIR)
     assert {name for name, _ in results} == {'capr12.txt', 'capr14.txt'}
     assert average >= MIN_ACCURACY, f'accuracy dropped to {average:.2%}'
+
+
+@pytest.mark.parametrize('value', ['0', '-1'])
+def test_workers_must_be_positive(value):
+    with pytest.raises(SystemExit):
+        OCR.parse_args(['--workers', value])
+
+
+def test_blas_is_limited_to_one_thread_per_process():
+    """Many cores x many worker processes x one OpenBLAS thread per core used
+    to exhaust memory ("OpenBLAS: memory allocation failed") on Windows."""
+
+    code = (
+        'import sys; sys.path.insert(0, sys.argv[1]); import OCR; '
+        'from threadpoolctl import threadpool_info; '
+        'print(sorted({i["num_threads"] for i in threadpool_info() '
+        'if i["internal_api"] == "openblas"}))'
+    )
+    env = {k: v for k, v in os.environ.items()
+           if k not in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS')}
+    out = subprocess.run([sys.executable, '-c', code, SRC], env=env,
+                         capture_output=True, text=True, check=True).stdout.strip()
+    assert out in ('[1]', '[]'), f'OpenBLAS thread counts: {out}'   # [] = no OpenBLAS in use

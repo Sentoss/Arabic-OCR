@@ -1,7 +1,17 @@
+import os
+
+# One BLAS thread per process. The recognition work is already spread over a
+# pool of worker processes, and by default every one of them would start an
+# OpenBLAS thread per CPU core, each with its own memory buffer. On a machine
+# with many cores that exhausts memory ("OpenBLAS: memory allocation failed
+# after 10 tries") before any text is read. This has to be set before numpy is
+# imported; a value the user set themselves is respected.
+for _name in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS'):
+    os.environ.setdefault(_name, '1')
+
 import argparse
 import logging
 import multiprocessing as mp
-import os
 import pickle
 import sys
 import time
@@ -23,6 +33,10 @@ IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp')
 
 model_name = '2L_NN.sav'
 
+# Every worker process holds its own copy of numpy, OpenCV, scikit-learn and
+# the model (a few hundred MB), so the default is deliberately modest.
+DEFAULT_MAX_WORKERS = 4
+
 
 def load_model():
     path = os.path.join(MODELS_DIR, model_name)
@@ -42,6 +56,16 @@ def get_model():
     if _model is None:
         _model = load_model()
     return _model
+
+
+def default_workers():
+    return max(1, min(os.cpu_count() or 1, DEFAULT_MAX_WORKERS))
+
+
+def init_worker(log_level):
+    # Windows starts workers from scratch (no inherited logging setup).
+    logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
+    get_model()
 
 
 def run2(obj):
@@ -75,7 +99,7 @@ def run2(obj):
     return ''.join(model.predict(np.array(feature_vectors)))
 
 
-def run(image_path, output_dir):
+def run(image_path, output_dir, pool=None):
     # Read test image
     full_image = read_image(image_path)
     if full_image is None:
@@ -84,7 +108,9 @@ def run(image_path, output_dir):
     # Start Timer
     before = time.time()
     words = extract_words(full_image)       # [ (word, its line),(word, its line),..  ]
-    with mp.Pool(mp.cpu_count(), initializer=get_model) as pool:
+    if pool is None:
+        predicted_words = [run2(word) for word in words]
+    else:
         predicted_words = pool.map(run2, words)
     # Stop Timer
     after = time.time()
@@ -125,14 +151,21 @@ def parse_args(argv=None):
                         help='folder with the images (png, jpg, jpeg, bmp); default: src/test')
     parser.add_argument('--output', default=os.path.join(BASE_DIR, 'output'),
                         help='folder for the results; default: src/output')
+    parser.add_argument('--workers', type=int, default=None, metavar='N',
+                        help='worker processes (default: number of CPU cores, at most %d); '
+                             '1 runs everything in this process. Use a lower number '
+                             'if the computer runs out of memory' % DEFAULT_MAX_WORKERS)
     parser.add_argument('-v', '--verbose', action='store_true', help='also log dropped characters')
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.workers is not None and args.workers < 1:
+        parser.error('--workers must be at least 1')
+    return args
 
 
 def main(argv=None):
     args = parse_args(argv)
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING,
-                        format='%(levelname)s: %(message)s')
+    log_level = logging.DEBUG if args.verbose else logging.WARNING
+    logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
 
     output_dir = args.output
     os.makedirs(os.path.join(output_dir, 'text'), exist_ok=True)
@@ -147,12 +180,20 @@ def main(argv=None):
     running_time = []
     failed = []
 
-    for images_path in tqdm(images_paths, total=len(images_paths)):
-        try:
-            running_time.append(run(images_path, output_dir))
-        except Exception as exc:
-            log.error('Failed on %s: %s: %s', images_path, type(exc).__name__, exc)
-            failed.append(images_path)
+    # One pool for all images (starting workers is slow, especially on Windows).
+    workers = args.workers or default_workers()
+    pool = mp.Pool(workers, initializer=init_worker, initargs=(log_level,)) if workers > 1 else None
+    try:
+        for images_path in tqdm(images_paths, total=len(images_paths)):
+            try:
+                running_time.append(run(images_path, output_dir, pool))
+            except Exception as exc:
+                log.error('Failed on %s: %s: %s', images_path, type(exc).__name__, exc)
+                failed.append(images_path)
+    finally:
+        if pool is not None:
+            pool.terminate()
+            pool.join()
 
     running_time.sort()
     with open(os.path.join(output_dir, 'running_time.txt'), 'w') as r:
