@@ -400,7 +400,7 @@ def filter_regions(word_img, no_dots_copy, SRL:list, VP:list, upper_base:int, lo
             while base <= lower_base+T:
                 
                 pixel = no_dots_copy[base][j]
-                cnt += pixel
+                cnt += int(pixel)   # a numpy uint8 here would wrap around at 256
 
                 base += 1
             

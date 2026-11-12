@@ -177,6 +177,16 @@ def pdf_pages(pdf_path, dpi):
         pdf.close()
 
 
+def pdf_page_count(pdf_path):
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(pdf_path)
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
+
+
 def run(path, output_dir, pool=None, dpi=DEFAULT_DPI, name=None):
     """Recognize one image or PDF and write its text file.
 
@@ -189,7 +199,9 @@ def run(path, output_dir, pool=None, dpi=DEFAULT_DPI, name=None):
     if is_pdf(path):
         before = time.time()
         parts = []
-        for number, page_image in pdf_pages(path, dpi):
+        pages = tqdm(pdf_pages(path, dpi), total=pdf_page_count(path),
+                     desc=os.path.basename(path), unit='page', leave=False)
+        for number, page_image in pages:
             text = ''
             if page_image is None:
                 failed_pages += 1
