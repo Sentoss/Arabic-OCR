@@ -24,15 +24,31 @@ pip install -r requirements.txt
 
 ## Run
 
-1. Put the images in the src/test directory (or choose another folder with `--input`)
+1. Put the images and/or scanned PDFs in the src/test directory (or choose another folder with `--input`)
 2. Run the following command (from any directory)
    ```shell
    python src/OCR.py
    ```
-   Options: `--input DIR` (default `src/test`), `--output DIR` (default `src/output`), `--workers N` (processes used; default: the number of CPU cores, at most 4; `1` uses no extra processes), `-v` (log characters that could not be read).
+   Options: `--input DIR` (default `src/test`), `--output DIR` (default `src/output`), `--workers N` (processes used; default: the number of CPU cores, at most 4; `1` uses no extra processes), `--dpi N` (resolution used to render PDF pages; default 300), `-v` (log characters that could not be read).
 3. The output folder will be created with:
-   - text folder which has text files corresponding to the images.
-   - running_time file which has the time taken to process each image.
+   - text folder which has text files corresponding to the images and PDFs.
+   - running_time file which has the time taken to process each image or PDF.
+
+### PDFs
+
+A PDF gives one text file (`name.txt`) with a marker line before every page, in the PDF's page order starting from 1 (these are not the page numbers printed on the pages):
+
+```
+=== Page 1 ===
+text of the first page...
+
+=== Page 2 ===
+text of the second page...
+```
+
+If a page cannot be read, its marker is still written (with no text under it) and the failure is reported. If a folder holds both `book.pdf` and `book.png`, the second result is saved as `book.png.txt` so nothing is overwritten.
+
+Only **scanned** PDFs (pages that are pictures) need this; for a PDF with real, selectable text, copy the text out instead. Each page is turned into an image first, and **the recognition is very sensitive to the size of the text**: it was tuned on a fixed font size. For a test PDF built from the sample images, accuracy was about 94% at 300 DPI (the resolution where the page's pixels match the original images) but only about 44% at 200 DPI and about 82-86% at 400 DPI. If a PDF reads badly, try other `--dpi` values (for example 100, 150 or 200); the right value depends on how large the text is in your PDF.
 
    The output folder is generated, so it is not tracked by git.
 

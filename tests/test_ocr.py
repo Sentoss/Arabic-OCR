@@ -1,6 +1,8 @@
 """Smoke and regression tests. Run from the repository root: pytest"""
 
 import os
+import re
+import shutil
 import subprocess
 import sys
 
@@ -123,3 +125,75 @@ def test_blas_is_limited_to_one_thread_per_process():
     out = subprocess.run([sys.executable, '-c', code, SRC], env=env,
                          capture_output=True, text=True, check=True).stdout.strip()
     assert out in ('[1]', '[]'), f'OpenBLAS thread counts: {out}'   # [] = no OpenBLAS in use
+
+
+# ---- PDF input -------------------------------------------------------------
+
+PDF_MIN_ACCURACY = 0.90     # about 94% measured; the test PDF is lossy (JPEG)
+PAGE_TRUTH = {1: 'capr12.txt', 2: 'capr14.txt'}
+
+
+@pytest.fixture
+def sample_pdf_folder(tmp_path):
+    """A folder with book.pdf: page 1 is capr12.png, page 2 is capr14.jpg."""
+
+    from PIL import Image
+
+    folder = tmp_path / 'in'
+    folder.mkdir()
+    pages = [Image.open(os.path.join(SRC, 'test', name)).convert('RGB')
+             for name in ('capr12.png', 'capr14.jpg')]
+    pages[0].save(folder / 'book.pdf', save_all=True, append_images=pages[1:], resolution=300)
+    return folder
+
+
+def split_pages(text):
+    parts = re.split(r'^=== Page (\d+) ===$', text, flags=re.M)
+    return {int(parts[i]): ''.join(parts[i + 1].split()) for i in range(1, len(parts), 2)}
+
+
+def test_pdf_gives_one_file_with_a_marker_and_the_right_text_per_page(sample_pdf_folder, tmp_path):
+    from rapidfuzz.distance import Levenshtein
+
+    out = tmp_path / 'out'
+    assert OCR.main(['--input', str(sample_pdf_folder), '--output', str(out), '--workers', '1']) == 0
+    assert os.listdir(out / 'text') == ['book.txt']
+
+    text = (out / 'text' / 'book.txt').read_text(encoding='utf8')
+    assert text.startswith('=== Page 1 ===\n')
+    pages = split_pages(text)
+    assert sorted(pages) == [1, 2]
+    for number, truth_name in PAGE_TRUTH.items():
+        with open(os.path.join(TRUTH_DIR, truth_name), encoding='utf8') as f:
+            truth = ''.join(f.read().split())
+        accuracy = 1 - Levenshtein.distance(pages[number], truth) / len(truth)
+        assert accuracy >= PDF_MIN_ACCURACY, f'page {number}: {accuracy:.2%}'
+
+
+def test_pdf_pages_are_numbered_from_one_and_are_three_channel_images(sample_pdf_folder):
+    pages = list(OCR.pdf_pages(str(sample_pdf_folder / 'book.pdf'), 300))
+    assert [number for number, _ in pages] == [1, 2]
+    for _, image in pages:
+        assert image.ndim == 3 and image.shape[2] == 3 and image.dtype == np.uint8
+
+
+def test_a_broken_pdf_is_reported_but_other_files_are_still_read(tmp_path):
+    folder = tmp_path / 'in'
+    folder.mkdir()
+    (folder / 'broken.pdf').write_bytes(b'this is not a pdf')
+    shutil.copy(os.path.join(SRC, 'test', 'capr14.jpg'), folder / 'capr14.jpg')
+
+    out = tmp_path / 'out'
+    assert OCR.main(['--input', str(folder), '--output', str(out), '--workers', '1']) == 1
+    assert os.listdir(out / 'text') == ['capr14.txt']
+
+
+def test_book_pdf_and_book_png_do_not_overwrite_each_other():
+    names = OCR.output_names(['x/book.pdf', 'x/book.png', 'x/other.png'])
+    assert names == {'x/book.pdf': 'book', 'x/book.png': 'book.png', 'x/other.png': 'other'}
+
+
+@pytest.mark.parametrize('dpi', ['5', '5000'])
+def test_dpi_must_be_in_range(dpi):
+    with pytest.raises(SystemExit):
+        OCR.parse_args(['--dpi', dpi])
