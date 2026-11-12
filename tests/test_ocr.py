@@ -1,5 +1,6 @@
 """Smoke and regression tests. Run from the repository root: pytest"""
 
+import logging
 import os
 import re
 import shutil
@@ -197,3 +198,69 @@ def test_book_pdf_and_book_png_do_not_overwrite_each_other():
 def test_dpi_must_be_in_range(dpi):
     with pytest.raises(SystemExit):
         OCR.parse_args(['--dpi', dpi])
+
+
+# ---- crashes and skipped words ------------------------------------------------
+
+def run_python(code):
+    return subprocess.run([sys.executable, '-X', 'faulthandler', '-W', 'ignore', '-c', code, SRC],
+                          capture_output=True, text=True)
+
+
+def test_empty_regions_raise_instead_of_crashing_opencv():
+    """OpenCV 5.0 segfaults (killing the whole run) on an empty image; the
+    segmentation must turn that into an ordinary error for that word."""
+
+    result = run_python(
+        'import sys; sys.path.insert(0, sys.argv[1])\n'
+        'import numpy as np, character_segmentation as cs\n'
+        'empty = np.zeros((25, 0), np.uint8)\n'
+        'for call in (lambda: cs.check_stroke(empty, empty, 5, 10, (0, 0), (0, 0)),\n'
+        '             lambda: cs.check_dots(np.zeros((25, 2), np.uint8)),\n'
+        '             lambda: cs.check_hole(empty), lambda: cs.remove_dots(empty)):\n'
+        '    try: call(); print("returned")\n'
+        '    except ValueError: print("ValueError")\n')
+    assert result.returncode == 0, f'process died (exit {result.returncode}):\n{result.stderr[-600:]}'
+    assert result.stdout.split() == ['ValueError'] * 4
+
+
+def test_noisy_and_bordered_words_never_crash_the_process():
+    """Salt-and-pepper noise and a black border made two cut points coincide
+    and crashed OpenCV 5.0 inside check_stroke (exit code 139 / -11)."""
+
+    result = run_python(
+        'import sys; sys.path.insert(0, sys.argv[1])\n'
+        'import numpy as np, cv2 as cv\n'
+        'from segmentation import extract_words\n'
+        'from character_segmentation import segment\n'
+        'words = []\n'
+        'for name in ("capr12.png", "capr14.jpg"):\n'
+        '    words += extract_words(cv.imread(sys.argv[1] + "/test/" + name))\n'
+        'rng = np.random.default_rng(0)\n'
+        'for word, line in words[:120]:\n'
+        '    noisy = word.copy(); mask = rng.random(noisy.shape) < 0.03; noisy[mask] = 255 - noisy[mask]\n'
+        '    bordered = word.copy(); bordered[:2, :] = 255; bordered[-2:, :] = 255; bordered[:, :2] = 255\n'
+        '    for w in (noisy, bordered):\n'
+        '        try: segment(line, w)\n'
+        '        except Exception: pass\n'
+        'print("survived")\n')
+    assert result.returncode == 0, f'process died (exit {result.returncode}):\n{result.stderr[-600:]}'
+    assert result.stdout.strip() == 'survived'
+
+
+def test_skipped_words_are_reported_once_per_page(monkeypatch, caplog):
+    import cv2 as cv
+
+    def cannot_split(line, word):
+        raise IndexError('list index out of range')
+
+    monkeypatch.setattr(OCR, 'segment', cannot_split)
+    image = cv.imread(os.path.join(SRC, 'test', 'capr14.jpg'))
+    with caplog.at_level(logging.WARNING):
+        text = OCR.recognize(image, None, 'book.pdf, page 7')
+
+    assert text.strip() == ''
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(messages) == 1
+    assert messages[0].startswith('book.pdf, page 7: ')
+    assert 'could not be split into letters' in messages[0] and '--dpi' in messages[0]

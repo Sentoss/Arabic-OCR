@@ -5,6 +5,20 @@ from segmentation import line_horizontal_projection, word_vertical_projection
 from skimage.morphology import skeletonize
 
 
+def nonempty(img):
+    """Return `img`, or raise ValueError if it has no pixels.
+
+    OpenCV 5.0 crashes the whole process (a segmentation fault that no
+    try/except can catch) when connectedComponents*/findContours get an empty
+    image, where OpenCV 4 raised an error. Empty regions appear when two cut
+    points coincide, which noisy scans make more likely. Raising here lets the
+    caller skip just that word."""
+
+    if img.size == 0:
+        raise ValueError('empty image region')
+    return img
+
+
 def binarize(word_img):
 
     _, binary_img = cv.threshold(word_img, 127, 255, cv.THRESH_BINARY)
@@ -232,7 +246,7 @@ def check_hole(segment):
 
     # no_dots = segment.copy()
 
-    contours, hierarchy = cv.findContours(segment, cv.RETR_TREE, cv.CHAIN_APPROX_NONE)
+    contours, hierarchy = cv.findContours(nonempty(segment), cv.RETR_TREE, cv.CHAIN_APPROX_NONE)
     cnt = 0
     for hier in hierarchy[0]:
         if hier[3] >= 0:
@@ -245,7 +259,7 @@ def remove_dots(word_img, threshold=11):
 
     no_dots = word_img.copy()
 
-    components, labels, stats, GoCs = cv.connectedComponentsWithStats(no_dots, connectivity=8)
+    components, labels, stats, GoCs = cv.connectedComponentsWithStats(nonempty(no_dots), connectivity=8)
     char = []
     for label in range(1, components):
         _, _, _, _, size = stats[label]
@@ -261,7 +275,7 @@ def remove_dots(word_img, threshold=11):
 
 def check_dots(segment):
 
-    contours, hierarchy = cv.findContours(segment[:, 1:segment.shape[1]-1], cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv.findContours(nonempty(segment[:, 1:segment.shape[1]-1]), cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
     cnt = 0
     for c in contours:
@@ -273,7 +287,7 @@ def check_dots(segment):
 def check_stroke(no_dots_copy, segment, upper_base, lower_base, SR1, SR2):
 
     T = 1
-    components, labels, stats, cen= cv.connectedComponentsWithStats(segment, connectivity=8)
+    components, labels, stats, cen= cv.connectedComponentsWithStats(nonempty(segment), connectivity=8)
     skeleton = skeletonize(segment.copy()).astype(np.uint8)
     (h, w) = segment.shape
 
@@ -340,7 +354,7 @@ def filter_regions(word_img, no_dots_copy, SRL:list, VP:list, upper_base:int, lo
     overlap = []
 
     T = 1
-    components, labels= cv.connectedComponents(word_img[:lower_base+5, :], connectivity=8)
+    components, labels= cv.connectedComponents(nonempty(word_img[:lower_base+5, :]), connectivity=8)
 
     SR_idx = 0
     while SR_idx < len(SRL):
@@ -366,7 +380,7 @@ def filter_regions(word_img, no_dots_copy, SRL:list, VP:list, upper_base:int, lo
 
         # Case 3 : Contain Holes
         # if check_hole(no_dots_copy[:, end_idx: cut_idx]) and inside_hole(no_dots_copy, end_idx, start_idx):
-        cc, l = cv.connectedComponents(1-(no_dots_copy[:, end_idx:start_idx+1]), connectivity=4)
+        cc, l = cv.connectedComponents(nonempty(1-(no_dots_copy[:, end_idx:start_idx+1])), connectivity=4)
         
         if cc-1 >= 3 and inside_hole(no_dots_copy, end_idx, start_idx):
             SR_idx += 1

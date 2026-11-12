@@ -85,9 +85,10 @@ def run2(obj):
     try:
         char_imgs = segment(line, word)
     except Exception as exc:
-        # One bad word must not abort the whole image.
-        log.warning('Skipping a word that failed to segment: %s: %s', type(exc).__name__, exc)
-        return ''
+        # One bad word must not abort the whole image. None (rather than '')
+        # tells recognize() that the word was skipped, so it can report it.
+        log.debug('Skipping a word that failed to segment: %s: %s', type(exc).__name__, exc)
+        return None
 
     feature_vectors = []
     skipped = 0
@@ -108,14 +109,24 @@ def run2(obj):
     return ''.join(model.predict(np.array(feature_vectors)))
 
 
-def recognize(full_image, pool=None):
-    """The text of one page image, with the lines separated by newlines."""
+def recognize(full_image, pool=None, label=''):
+    """The text of one page image, with the lines separated by newlines.
+
+    `label` names the page in the message about skipped words."""
 
     words = extract_words(full_image)       # [ (word, its line),(word, its line),..  ]
     if pool is None:
         predicted_words = [run2(word) for word in words]
     else:
         predicted_words = pool.map(run2, words)
+
+    skipped = sum(word_text is None for word_text in predicted_words)
+    if skipped:
+        log.warning('%s: %d of %d words could not be split into letters and were skipped. '
+                    'Very small or very large text is a common cause (for a PDF, try another '
+                    '--dpi); so are pictures, lines and borders. Use -v for details.',
+                    label or 'Page', skipped, len(words))
+    predicted_words = [word_text or '' for word_text in predicted_words]
 
     # Rebuild the text line by line. Words of the same line share the same
     # `line` array object, which is how a new line is detected.
@@ -184,7 +195,7 @@ def run(path, output_dir, pool=None, dpi=DEFAULT_DPI, name=None):
                 failed_pages += 1
             else:
                 try:
-                    text = recognize(page_image, pool)
+                    text = recognize(page_image, pool, f'{os.path.basename(path)}, page {number}')
                 except Exception as exc:
                     log.error('%s, page %d failed: %s: %s',
                               os.path.basename(path), number, type(exc).__name__, exc)
@@ -199,7 +210,7 @@ def run(path, output_dir, pool=None, dpi=DEFAULT_DPI, name=None):
         if full_image is None:
             raise ValueError(f'Could not read image: {path}')
         before = time.time()
-        predicted_text = recognize(full_image, pool)
+        predicted_text = recognize(full_image, pool, os.path.basename(path))
 
     exc_time = time.time() - before
 
